@@ -41,17 +41,17 @@ class Cache {
     [string] $CacheFile
     [hashtable] $Cache
     [bool] $IsDirty = $false
+    [int] $JsonDepth = 100
+    [int] $MaxEntries = 0
     
     #region Constructors
     
     # Constructor with cache file name (creates in module root)
     Cache([string] $CacheFileName) {
-        # Se não tiver extensão, adicionar .cache
         if (-not $CacheFileName.EndsWith('.cache')) {
             $CacheFileName = "$CacheFileName.cache"
         }
         
-        # Cache file no diretório onde o módulo foi importado
         $this.CacheFile = Join-Path $PWD $CacheFileName
         $this.Load()
     }
@@ -75,11 +75,26 @@ class Cache {
         if (Test-Path $this.CacheFile) {
             try {
                 $json = Get-Content $this.CacheFile -Raw -ErrorAction Stop
-                $this.Cache = $json | ConvertFrom-Json -AsHashtable
+                if ([string]::IsNullOrWhiteSpace($json)) {
+                    throw "Arquivo de cache vazio"
+                }
+                $parsed = $json | ConvertFrom-Json -AsHashtable
+                if ($parsed -isnot [hashtable]) {
+                    throw "Formato inválido: raiz não é um objeto hashtable"
+                }
+                $this.Cache = $parsed
                 Write-Verbose "Cache loaded from $($this.CacheFile)"
             } catch {
-                Write-Warning "Failed to load cache: $($_.Exception.Message)"
+                Write-Warning "Cache corrompido ou inválido ($($this.CacheFile)): $($_.Exception.Message). Inicializando cache vazio."
+                $backupPath = "$($this.CacheFile).corrupted"
+                try {
+                    Copy-Item $this.CacheFile $backupPath -Force
+                    Write-Warning "Arquivo corrompido salvo como: $backupPath"
+                } catch {
+                    # Não bloqueia se backup falhar
+                }
                 $this.Cache = @{}
+                $this.IsDirty = $true
             }
         } else {
             $this.Cache = @{}
@@ -95,15 +110,15 @@ class Cache {
         }
         
         try {
-            # Criar diretório se não existir
             $cacheDir = Split-Path $this.CacheFile -Parent
             if (-not (Test-Path $cacheDir)) {
                 New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
             }
             
-            $this.Cache | ConvertTo-Json -Depth 10 | Set-Content $this.CacheFile -ErrorAction Stop
+            $json = $this.Cache | ConvertTo-Json -Depth $this.JsonDepth
+            $json | Set-Content $this.CacheFile -ErrorAction Stop
             $this.IsDirty = $false
-            Write-Verbose "Cache saved to $($this.CacheFile)"
+            Write-Verbose "Cache saved to $($this.CacheFile) (Depth: $($this.JsonDepth))"
         } catch {
             Write-Warning "Failed to save cache: $($_.Exception.Message)"
         }
@@ -158,8 +173,35 @@ class Cache {
             Write-Verbose "Cache set for key: $Key (no expiration)"
         }
         
+        # Se chave já existe, remover do tracking de ordem para reinserir no final
+        $isNewKey = -not $this.Cache.ContainsKey($Key)
         $this.Cache[$Key] = $entry
         $this.IsDirty = $true
+        
+        # Evitar crescimento infinito: remover entry mais antiga se exceder MaxEntries
+        if ($isNewKey -and $this.MaxEntries -gt 0 -and $this.Cache.Count -gt $this.MaxEntries) {
+            $oldestKey = $null
+            $oldestTime = [DateTime]::MaxValue
+            foreach ($k in $this.Cache.Keys) {
+                if ($k -eq $Key) { continue }
+                $cachedAt = $this.Cache[$k].CachedAt
+                if ($cachedAt) {
+                    try {
+                        $time = [DateTime]::Parse($cachedAt)
+                        if ($time -lt $oldestTime) {
+                            $oldestTime = $time
+                            $oldestKey = $k
+                        }
+                    } catch {
+                        # Ignorar entradas com data inválida
+                    }
+                }
+            }
+            if ($oldestKey) {
+                $this.Cache.Remove($oldestKey)
+                Write-Verbose "Cache max entries reached ($($this.MaxEntries)), evicted oldest key: $oldestKey"
+            }
+        }
     }
     
     # Remove item from cache
@@ -229,6 +271,8 @@ class Cache {
             ExpiredEntries = $expiredEntries
             CacheFile = $this.CacheFile
             IsDirty = $this.IsDirty
+            JsonDepth = $this.JsonDepth
+            MaxEntries = $this.MaxEntries
         }
     }
     

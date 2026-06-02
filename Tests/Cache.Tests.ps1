@@ -34,7 +34,7 @@ AfterAll {
     Remove-Module Cache -Force -ErrorAction SilentlyContinue
 }
 
-Describe 'Cache Module' {
+Describe 'Cache Module' -Tag 'Unit' {
     Context 'Module Import' {
         It 'Should have Cache class available' {
             [Cache] | Should -Not -BeNullOrEmpty
@@ -46,7 +46,7 @@ Describe 'Cache Module' {
     }
 }
 
-Describe 'Cache Class - Constructors' {
+Describe 'Cache Class - Constructors' -Tag 'Unit' {
     Context 'Constructor with file name only' {
         It 'Should create cache with file name' {
             $cache = [Cache]::new('test-cache')
@@ -78,7 +78,7 @@ Describe 'Cache Class - Constructors' {
     }
 }
 
-Describe 'Cache Class - Basic Operations' {
+Describe 'Cache Class - Basic Operations' -Tag 'Unit' {
     BeforeEach {
         $script:cache = [Cache]::new('test-basic', $script:TestCacheDir)
     }
@@ -207,7 +207,7 @@ Describe 'Cache Class - Basic Operations' {
     }
 }
 
-Describe 'Cache Class - Persistence' {
+Describe 'Cache Class - Persistence' -Tag 'Unit' {
     BeforeEach {
         $script:cache = [Cache]::new('test-persistence', $script:TestCacheDir)
     }
@@ -312,7 +312,7 @@ Describe 'Cache Class - Persistence' {
     }
 }
 
-Describe 'Cache Class - Advanced Operations' {
+Describe 'Cache Class - Advanced Operations' -Tag 'Unit' {
     BeforeEach {
         $script:cache = [Cache]::new('test-advanced', $script:TestCacheDir)
     }
